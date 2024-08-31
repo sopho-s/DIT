@@ -42,7 +42,8 @@ def GetUsersLoggedOn() -> str:
 def GetRunningProccesses() -> str:
     message: str = ""
     for process in psutil.process_iter():
-        message += f"{process.pid} {process.name} "
+        message += f"{process.pid} {process.name()} "
+    print(message)
     return message.strip()
 
 def ProcessQuestion(question: str) -> str:

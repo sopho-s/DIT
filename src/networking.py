@@ -2,17 +2,21 @@ import socket
 import random
 import infominer
 import encryption
+import json
 
 class Header:
-    def __init__(self, hello: bool = False, err: int = 0, infocount: int = 0, questioncount: int = 0, size: int = 0):
+    def __init__(self, hello: bool = False, help: bool = False, err: int = 0, infocount: int = 0, questioncount: int = 0, size: int = 0):
         self.hello: bool = hello
+        self.help: bool = help
         self.err: int = err
         self.infocount: int = infocount
         self.questioncount: int = questioncount
         self.size: int = size
     def GetBytes(self) -> bytes:
         message: bytes = b""
-        message += (2 ** 7 if self.hello else 0).to_bytes(1, "big")
+        flags: int = 2 ** 7 if self.hello else 0
+        flags += 2 ** 6 if self.help else 0
+        message += flags.to_bytes(1, "big")
         message += (self.err * 2 ** 4).to_bytes(1, "big")
         message += self.infocount.to_bytes(2, "big")
         message += self.questioncount.to_bytes(2, "big")
@@ -57,12 +61,13 @@ class Message:
         return message
     
 def GetHeader(message: bytes) -> tuple[Header, bytes]:
-    hello: bool = True if (int.from_bytes(message[0:1], "big") * 2 ** -7) == 1 else False
+    hello: bool = True if int.from_bytes(message[0:1], "big") & 0b10000000 != 0 else False
+    help: bool = True if int.from_bytes(message[0:1], "big") & 0b01000000 != 0 else False
     error: int = int(int.from_bytes(message[1:2], "big") * 2 ** -4)
     infocount: int = int.from_bytes(message[2:4], "big")
     questioncount: int = int.from_bytes(message[4:6], "big")
     size: int = int.from_bytes(message[6:8], "big")
-    return (Header(hello, error, infocount, questioncount, size), message[8:])
+    return (Header(hello, help, error, infocount, questioncount, size), message[8:])
 
 def GetBody(message: bytes, isquestion: bool) -> tuple[Header, bytes]:
     if isquestion:
@@ -147,15 +152,42 @@ class ConnectionClient:
             return None
         message: Message = InterpretMessagePostHeader(data, header, self.key)
         return message
+    def GetHelp(self) -> Message:
+        self.connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.connection.connect((self.ip, self.port))
+        self.connection.sendall(Message(Header(help = True)).GetBytes(self.key))
+        self.connection.settimeout(10)
+        data: bytes = recvall(self.connection, 8)
+        header, _ = GetHeader(data)
+        data: bytes = recvall(self.connection, header.size)
+        self.connection.close()
+        if data == b"":
+            return None
+        message: Message = InterpretMessagePostHeader(data, header, self.key)
+        return message
 
 class ConnectionServer:
     def __init__(self, ip: str, port: int, key: bytes):
         self.ip: str = ip
         self.port: int = port
         self.key: bytes = key
+    def List(self) -> list[str]:
+        with open("help.json", "r") as f:
+            help: dict = json.loads(f.read())
+        commands: list[str] = []
+        for command in help["commands"]:
+            name: str = command["name"]
+            description: str = command["description"]
+            commands.append(f"{name} {description}")
+        return commands
     def Process(self, message: Message) -> Message:
-        if message.header.hello == True:
-            return Message(Header(True))
+        hello = message.header.hello
+        if message.header.help == True:
+            commands: list[str] = self.List()
+            info: list[Body] = []
+            for command in commands:
+                info.append(Body(index = 0, data = command))
+            return Message(Header(hello, infocount = len(info)), info)
         else:
             error: int = 0
             responses: list[Body] = []
@@ -166,7 +198,7 @@ class ConnectionServer:
                     responses.append(Body(index, 1, response))
                 else:
                     responses.append(Body(index, 0, response))
-            return Message(Header(infocount = len(message.questions), err = error), responses)
+            return Message(Header(hello = hello, infocount = len(message.questions), err = error), responses)
     def Run(self):
         self.connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connection.bind((self.ip, self.port))

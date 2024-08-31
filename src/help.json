@@ -1,0 +1,64 @@
+{
+    "commands" : [
+        { 
+            "name": "BatteryP",
+            "fullname": "Battery percentage",
+            "description": "Returns the battery percentage"
+        },
+        { 
+            "name": "CPUP",
+            "fullname": "CPU percentage",
+            "description": "Returns the CPU usage as a percentage"
+        },
+        { 
+            "name": "CPUPC",
+            "fullname": "CPU physical core count",
+            "description": "Returns the amount of physical cores on the cpu"
+        },
+        { 
+            "name": "CPULC",
+            "fullname": "CPU logical core count",
+            "description": "Returns the amount of logical cores on the cpu"
+        },
+        { 
+            "name": "CPUFB",
+            "fullname": "CPU max frequency",
+            "description": "Returns the maximum frequency of the cpu"
+        },
+        { 
+            "name": "CPUFB",
+            "fullname": "CPU min frequency",
+            "description": "Returns the minimum frequency of the cpu"
+        },
+        { 
+            "name": "CPUFB",
+            "fullname": "CPU current frequency",
+            "description": "Returns the current frequency of the cpu"
+        },
+        { 
+            "name": "MemP",
+            "fullname": "Memory percentage",
+            "description": "Returns the memory usage as a percentage"
+        },
+        { 
+            "name": "DiskP",
+            "fullname": "Disk percentage",
+            "description": "Returns the disk usage as a percentage"
+        },
+        { 
+            "name": "UserL",
+            "fullname": "Users logged on",
+            "description": "Returns all users logged onto the computer"
+        },
+        { 
+            "name": "OS",
+            "fullname": "Operating system",
+            "description": "Returns the operating system"
+        },
+        { 
+            "name": "ProcR",
+            "fullname": "Processes running",
+            "description": "Returns the currently running processes"
+        }
+    ]
+}

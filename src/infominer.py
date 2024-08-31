@@ -47,7 +47,7 @@ def GetRunningProccesses() -> str:
 
 def ProcessQuestion(question: str) -> str:
     match question:
-        case "BatterP":
+        case "BatteryP":
             return str(GetBatteryPercentage())
         case "CPUP":
             return str(GetCPUUsage())

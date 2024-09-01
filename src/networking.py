@@ -1,7 +1,7 @@
 import socket
 import random
 import infominer
-import encryption
+import security
 import json
 
 class Header:
@@ -24,9 +24,10 @@ class Header:
         return message
     
 class Body:
-    def __init__(self, index: int = None, err: int = 0, data: str = None):
+    def __init__(self, index: int = None, err: int = 0, password: bool = False, data: str = None):
         self.index: int = index
         self.err: int = err
+        self.password: bool = password
         if data != None:
             self.datasize: int = len(data)
         else:
@@ -36,7 +37,7 @@ class Body:
         message: bytes = b""
         if self.index != None:
             message += self.index.to_bytes(2, "big")
-        message += (self.err * 2 ** 4).to_bytes(1, "big")
+        message += (self.err * 2 ** 4 + (2 ** 3 if self.password else 0)).to_bytes(1, "big")
         message += b"\x00"
         message += self.datasize.to_bytes(2, "big")
         if self.data != None:
@@ -50,19 +51,19 @@ class Message:
         self.questions: list[Body] = questions
     def GetBytes(self, key: bytes) -> bytes:
         message: bytes = b""
-        for question in self.questions:
-            message += question.GetBytes()
         for info in self.info:
             message += info.GetBytes()
+        for question in self.questions:
+            message += question.GetBytes()
         if message != b"":
-            message = encryption.Encrypt(key, message)
+            message = security.Encrypt(key, message)
         self.header.size = len(message)
         message = self.header.GetBytes() + message
         return message
     
 def GetHeader(message: bytes) -> tuple[Header, bytes]:
-    hello: bool = True if int.from_bytes(message[0:1], "big") & 0b10000000 != 0 else False
-    help: bool = True if int.from_bytes(message[0:1], "big") & 0b01000000 != 0 else False
+    hello: bool = True if (int.from_bytes(message[0:1], "big") & 0b10000000) != 0 else False
+    help: bool = True if (int.from_bytes(message[0:1], "big") & 0b01000000) != 0 else False
     error: int = int(int.from_bytes(message[1:2], "big") * 2 ** -4)
     infocount: int = int.from_bytes(message[2:4], "big")
     questioncount: int = int.from_bytes(message[4:6], "big")
@@ -71,22 +72,24 @@ def GetHeader(message: bytes) -> tuple[Header, bytes]:
 
 def GetBody(message: bytes, isquestion: bool) -> tuple[Header, bytes]:
     if isquestion:
-        error: int = int(int.from_bytes(message[0:1], "big") * 2 ** -4)
+        error: int = int((int.from_bytes(message[0:1], "big") & 0b11110000) * 2 ** -4)
+        password: int = int((int.from_bytes(message[0:1], "big") & 0b00001000) * 2 ** -3)
         datasize: int = int.from_bytes(message[2:4], "big")
         data = message[4:4+datasize].decode("ascii")
-        return (Body(None, error, data), message[4+datasize:])
+        return (Body(None, error, password, data), message[4+datasize:])
     index: int = int.from_bytes(message[0:2], "big")
-    error: int = int(int.from_bytes(message[2:3], "big") * 2 ** -4)
+    error: int = int((int.from_bytes(message[2:3], "big") & 0b11110000) * 2 ** -4)
+    password: int = int((int.from_bytes(message[2:3], "big") & 0b00001000) * 2 ** -3)
     datasize: int = int.from_bytes(message[4:6], "big")
     data = message[6:6+datasize].decode("ascii")
-    return (Body(index, error, data), message[6+datasize:])
+    return (Body(index, error, password, data), message[6+datasize:])
 
 def InterpretMessage(message: bytes, key: bytes) -> Message:
     header, message = GetHeader(message)
     infolist: list[Body] = []
     questionlist: list[Body] = []
     if len(message) != 0:
-        message = encryption.Decrypt(key, message)
+        message = security.Decrypt(key, message)
         for _ in range(header.infocount):
             info, message = GetBody(message, False)
             infolist.append(info)
@@ -99,7 +102,7 @@ def InterpretMessagePostHeader(message: bytes, header: Header, key: bytes) -> Me
     infolist: list[Body] = []
     questionlist: list[Body] = []
     if len(message) != 0:
-        message = encryption.Decrypt(key, message)
+        message = security.Decrypt(key, message)
         for _ in range(header.infocount):
             info, message = GetBody(message, False)
             infolist.append(info)
@@ -118,14 +121,21 @@ def recvall(sock, size):
     return result
 
 class ConnectionClient:
-    def __init__(self, ip: str, port: int, key: bytes):
+    def __init__(self, ip: str, port: int, key: bytes, password: str):
         self.ip: str = ip
         self.port: int = port
         self.key: bytes = key
+        if password != None:
+            self.hash: str = security.PasswordHash(password)
+        else:
+            self.hash: str = None
     def CheckServer(self) -> bool:
         self.connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connection.connect((self.ip, self.port))
-        self.connection.sendall(Message(Header(True)).GetBytes(self.key))
+        infolist: list[Body] = []
+        if self.hash != None:
+            infolist.append(Body(0, 0, True, self.hash))
+        self.connection.sendall(Message(Header(True, infocount = len(infolist)), infolist).GetBytes(self.key))
         self.connection.settimeout(10)
         data = recvall(self.connection, 8)
         self.connection.close()
@@ -142,7 +152,10 @@ class ConnectionClient:
             questions.append(Body(data = question))
         self.connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connection.connect((self.ip, self.port))
-        self.connection.sendall(Message(Header(questioncount = len(questions)), questions = questions).GetBytes(self.key))
+        infolist: list[Body] = []
+        if self.hash != None:
+            infolist.append(Body(0, 0, True, self.hash))
+        self.connection.sendall(Message(Header(infocount = len(infolist), questioncount = len(questions)), info = infolist, questions = questions).GetBytes(self.key))
         self.connection.settimeout(10)
         data: bytes = recvall(self.connection, 8)
         header, _ = GetHeader(data)
@@ -155,7 +168,10 @@ class ConnectionClient:
     def GetHelp(self) -> Message:
         self.connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connection.connect((self.ip, self.port))
-        self.connection.sendall(Message(Header(help = True)).GetBytes(self.key))
+        infolist: list[Body] = []
+        if self.hash != None:
+            infolist.append(Body(0, 0, True, self.hash))
+        self.connection.sendall(Message(Header(help = True, infocount = len(infolist)), infolist).GetBytes(self.key))
         self.connection.settimeout(10)
         data: bytes = recvall(self.connection, 8)
         header, _ = GetHeader(data)
@@ -167,10 +183,11 @@ class ConnectionClient:
         return message
 
 class ConnectionServer:
-    def __init__(self, ip: str, port: int, key: bytes):
+    def __init__(self, ip: str, port: int, key: bytes, hash: str):
         self.ip: str = ip
         self.port: int = port
         self.key: bytes = key
+        self.hash: str = hash
     def List(self) -> list[str]:
         with open("help.json", "r") as f:
             help: dict = json.loads(f.read())
@@ -193,12 +210,26 @@ class ConnectionServer:
             responses: list[Body] = []
             for index, question in enumerate(message.questions):
                 response: str = infominer.ProcessQuestion(question.data)
-                if response == None:
+                if response == 0:
                     error = 3
-                    responses.append(Body(index, 1, response))
+                    responses.append(Body(index, 1, False))
+                if response == 1:
+                    error = 3
+                    responses.append(Body(index, 2, False))
                 else:
-                    responses.append(Body(index, 0, response))
+                    responses.append(Body(index, 0, False, response))
             return Message(Header(hello = hello, infocount = len(message.questions), err = error), responses)
+    def CheckAuth(self, message: Message) -> bool:
+        if self.hash != None:
+            for info in message.info:
+                if info.password == True:
+                    if info.data == self.hash:
+                        return True
+                else:
+                    return False
+            return False
+        else:
+            return True
     def Run(self):
         self.connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connection.bind((self.ip, self.port))
@@ -209,5 +240,9 @@ class ConnectionServer:
             header, _ = GetHeader(data)
             data: bytes = recvall(conn, header.size)
             message: Message = InterpretMessagePostHeader(data, header, self.key)
-            message = self.Process(message)
-            conn.sendall(message.GetBytes(self.key))
+            if self.CheckAuth(message):
+                message = self.Process(message)
+                conn.sendall(message.GetBytes(self.key))
+            else:
+                message = Message(Header(err = 4))
+                conn.sendall(message.GetBytes(self.key))

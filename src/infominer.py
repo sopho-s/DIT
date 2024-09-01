@@ -1,6 +1,7 @@
 import psutil
 import subprocess
 import shutil
+from typing import Union
 from sys import platform
 
 def GetBatteryPercentage() -> float:
@@ -43,33 +44,44 @@ def GetRunningProccesses() -> str:
     message: str = ""
     for process in psutil.process_iter():
         message += f"{process.pid} {process.name()} "
-    print(message)
     return message.strip()
 
-def ProcessQuestion(question: str) -> str:
-    match question:
-        case "BatteryP":
-            return str(GetBatteryPercentage())
-        case "CPUP":
-            return str(GetCPUUsage())
-        case "CPUPC":
-            return str(GetCPUPhysicalCoreCount())
-        case "CPULC":
-            return str(GetCPULogicalCoreCount())
-        case "CPUFB":
-            return str(GetCPUMaxFrequency())
-        case "CPUFS":
-            return str(GetCPUMinFrequency())
-        case "CPUFC":
-            return str(GetCPUCurrentFrequency())
-        case "MemP":
-            return str(GetMemoryUsage())
-        case "DiskP":
-            return str(GetDiskUsage())
-        case "UserL":
-            return str(GetUsersLoggedOn())
-        case "OS":
-            return str(GetOS())
-        case "ProcR":
-            return str(GetRunningProccesses())
-    return None
+def Reboot() -> str:
+    if platform.system().lower() == "windows":
+        subprocess.run(["shutdown", "/r", "/t", "10"], check=True)
+    elif platform.system().lower() == "linux" or platform.system().lower() == "darwin":
+        subprocess.run(["sudo", "shutdown", "-r", "+0.1"], check=True)
+    return "rebooting"
+
+def ProcessQuestion(question: str) -> Union[str, int]:
+    try:
+        match question:
+            case "BatteryP":
+                return str(GetBatteryPercentage())
+            case "CPUP":
+                return str(GetCPUUsage())
+            case "CPUPC":
+                return str(GetCPUPhysicalCoreCount())
+            case "CPULC":
+                return str(GetCPULogicalCoreCount())
+            case "CPUFB":
+                return str(GetCPUMaxFrequency())
+            case "CPUFS":
+                return str(GetCPUMinFrequency())
+            case "CPUFC":
+                return str(GetCPUCurrentFrequency())
+            case "MemP":
+                return str(GetMemoryUsage())
+            case "DiskP":
+                return str(GetDiskUsage())
+            case "UserL":
+                return str(GetUsersLoggedOn())
+            case "OS":
+                return str(GetOS())
+            case "ProcR":
+                return str(GetRunningProccesses())
+            case "Reboot":
+                return str(Reboot())
+        return 0
+    except:
+        return 1
